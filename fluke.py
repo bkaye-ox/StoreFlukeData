@@ -81,7 +81,7 @@ def setup_fluke(ser, mode, freq):
 
 
 def finish_stream(ser):
-    final = [b'\x1b', b'LOCAL']
+    final = [b'\x1b']
     for cmd in final:
         res = cmd_response(ser, cmd)
 
@@ -185,10 +185,15 @@ class StreamFluke():
             return [(), ]
 
 
-def store(data, fname, freq, T_ma):
+def store(data, time_str, ename, freq, T_ma, plot=True):
+    
     import pandas as pd
+    import os
     flowr, time = zip(*data)
-    import numpy as np
+
+    if not os.path.exists(f'data/{ename}'):
+        os.mkdir(f'data/{ename}')
+    fname = f'data/{ename}_{time_str}'
 
     pd.DataFrame({k: v for k, v in zip(['Time', 'Flow rate (lpm)'], [
                  time, flowr])}).to_csv(f'{fname}_raw.csv', index=False)
@@ -201,8 +206,8 @@ def store(data, fname, freq, T_ma):
         time, ma])})
     df.drop(index=df.index[((df['Time'] % 1) != 0)], inplace=True)
     df.to_csv(f'{fname}.csv', index=False)
-
-    import plotly.express as px
-
-    fig = px.line(df, x='Time', y=f'{T_ma}s flow rate (lpm)')
-    fig.update_layout(title=fname).show()
+    
+    if plot:
+        import plotly.express as px
+        fig = px.line(df, x='Time', y=f'{T_ma}s flow rate (lpm)')
+        fig.update_layout(title=fname).show()

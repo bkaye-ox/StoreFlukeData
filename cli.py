@@ -15,22 +15,26 @@ parser.add_argument(
     '-m', '--mode',default='airway', help='fluke mode'
 )
 
+parser.add_argument(
+    '-f', '--freq', default=80, help='logging frequency Hz'
+)
+
 
 if __name__ == '__main__':
-    freq = 80  # Hz, must be between 20 & 100 go with mux of 2
+    # freq = 80  # Hz, must be between 20 & 100 go with mux of 2
 
     #note reporting at 20Hz for some reason
 
     args = parser.parse_args()
 
-    import datetime
-    tnow = datetime.datetime.now()
+    import time
+    t_str = time.strftime('%H-%m',time.time)
 
     experiment_name = args.name  # put the setting name
     # will include current hour-time_ in order to prevent overriding
 
     # DO NOT FORGET TO SET THE TIME PROPERLY!! currently 10 mins, must be int
-    res = fluke.StreamFluke('COM3', args.mode, freq).measure(minutes=int(args.time))
+    res = fluke.StreamFluke('COM3', args.mode, args.freq).measure(minutes=int(args.time))
     fluke.store(
-        res, f'data/{tnow.hour}-{tnow.minute}_{experiment_name}', freq, 60,)
+        res, t_str, experiment_name, args.freq, 60,)
     print(fluke.cmd_res_store)
