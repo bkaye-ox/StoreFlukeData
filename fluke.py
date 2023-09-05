@@ -71,6 +71,7 @@ def setup_fluke(ser, mode, freq):
                 print('ERR, restart!!')
                 return 0
         except:
+            # send escape character
             cmd_response(b'\x1b')
 
 
@@ -125,7 +126,7 @@ def extract_data(data, freq):
 
             if 'OL' in num:
                 # num = 'OL' # out of range
-                num = 0.75
+                num = 'OL'
             else:
                 num = float(num)
 
@@ -146,7 +147,7 @@ class StreamFluke():
     def __init__(self, COM, mode, freq=40):
 
         self.ser = serial.Serial(COM,
-                                 timeout=4/freq,
+                                 timeout=0.1,
                                  baudrate=115200,
                                  parity='N',
                                  stopbits=1,
@@ -200,7 +201,7 @@ def store(data, time_str, ename, freq, T_ma, plot=True):
 
     print(f'{1000*sum(flowr)/len(flowr):.2f} mLpm')
 
-    ma = pd.Series(flowr).rolling(T_ma*freq, min_periods=1).mean()
+    ma = pd.Series(flowr).rolling(T_ma*freq, min_periods=1,).mean(numeric_only=True)
 
     df = pd.DataFrame({k: v for k, v in zip(['Time', f'{T_ma}s flow rate (lpm)'], [
         time, ma])})
