@@ -4,7 +4,7 @@ import serial
 import time
 import asyncio
 
-
+# char reference
 language = {
     'CR': 0x0D,
     'LF': 0x0A,
@@ -12,6 +12,7 @@ language = {
     'BS': 0x08,
     'ESC': 0x1B,
 }
+# responses, 0 good, >=1 error
 response = {
     'RMAIN': 0,
     'LOCAL': 0,
@@ -23,9 +24,7 @@ response = {
     '!04 BUFFER OVERFLOW': 5,
 }
 
-cmd_res_store = []
-
-
+debug_command_responses = []
 
 
 def cmd_response(ser, cmd: bytes):
@@ -37,32 +36,43 @@ def cmd_response(ser, cmd: bytes):
     return data
 
 
-def read_data(ser: serial.Serial, dest: list, length: int):
+def read_data(ser: serial.Serial, data_store: list, length: int, poll_freq: float = 1):
 
     start_time = time.time()
 
-    while time.time() - start_time < length + 5:
+    while time.time() - start_time < length:
         count = ser.in_waiting
-        if count:
+        if count > 4000:  # every approx 400 readings, store
             data = ser.read(count)
-            dest.append(data)
+            data_store.append(data)
             # counter += 1
         else:
-            time.sleep(1)  # sleep for one second
+            time.sleep(1/poll_freq)  # timeout
+
+    count = ser.in_waiting
+    data = ser.read(count)
+    data_store.append(data)
 
 
-def setup_fluke(ser, mode, freq):
-
+def stream_cmds(mode, freq):
+    setup = [b'REMOTE']
     if mode == 'airway':
-        setup = [b'REMOTE', b'MEAS=AW',
-            b'MFLAW=TRUE', b'MFREQ='+bytes(str(freq), 'UTF-8'), b'STREAMIDX']
+        setup += [b'MEAS=AW',
+                  b'MFLAW=TRUE']
+    elif mode == 'ulflow':
+        setup += [b'MEAS=FLULO',
+                  b'MFLULO=TRUE']
     else:
-        setup = [b'REMOTE', b'MEAS=FLULO',
-            b'MFLULO=TRUE', b'MFREQ='+bytes(str(freq), 'UTF-8'), b'STREAMIDX']
+        raise Exception('unexpected mode!')
+    setuo += [b'MFREQ='+bytes(str(freq), 'UTF-8'), b'STREAMIDX']
+    return setup
 
+
+def start_stream(ser, mode, freq):
+    cmd_sequence = stream_cmds(mode, freq)
 
     ser.flush()
-    for cmd in setup:
+    for cmd in cmd_sequence:
         time.sleep(1e-6)
         res = cmd_response(ser, cmd)
 
@@ -74,24 +84,21 @@ def setup_fluke(ser, mode, freq):
             # send escape character
             cmd_response(b'\x1b')
 
-
-        cmd_res_store.append(res)
+        debug_command_responses.append(res)
         # print(res)
 
     return 1
 
 
-def finish_stream(ser):
-    final = [b'\x1b']
-    for cmd in final:
-        res = cmd_response(ser, cmd)
+def end_stream(ser):
+    res = cmd_response(ser, b'\x1b')
+    debug_command_responses.append(res)
+    time.sleep(1e-6)
 
-        if res == b'!\r\n':
-            pass
 
-        cmd_res_store.append(res)
-
-        time.sleep(1e-6)
+def clear_buffer(ser):
+    if ser.in_waiting:
+        ser.read(ser.in_waiting)
 
 
 def decode(b):
@@ -112,8 +119,6 @@ def extract_data(data, freq):
         start_dex += 1
 
     split_data = data[start_dex+2:end_dex-1].split(b'\r\n')
-
-    # data = .split(b'\r\n')
 
     def extract_line(line):
         data = decode(line)
@@ -138,7 +143,8 @@ def extract_data(data, freq):
 
     if len(data):
         _, i0 = extract_line(split_data[0])
-        return [(n, (k - i0)/freq) for (n, k) in map(extract_line, split_data)] # scaled by 2 idk why
+        # scaled by 2 idk why
+        return [(n, (k - i0)/freq) for (n, k) in map(extract_line, split_data)]
     else:
         return []
 
@@ -158,7 +164,7 @@ class StreamFluke():
         assert freq >= 20 and freq <= 100
         self.freq = freq
 
-        self.mode = 'airway' if mode =='airway' else 'ulflow'
+        self.mode = 'airway' if mode == 'airway' else 'ulflow'
 
     def measure(self, *, seconds: int = None, minutes: int = None):
         if not ((seconds is None) ^ (minutes is None)):
@@ -174,20 +180,21 @@ class StreamFluke():
 
         self.ser.open()
 
-        if self.ser.in_waiting:
-            self.ser.read(self.ser.in_waiting)
+        clear_buffer(self.ser)
 
-        if setup_fluke(self.ser, self.mode, self.freq):
+        if start_stream(self.ser, self.mode, self.freq):
             read_data(self.ser, dstore, N)
-            finish_stream(self.ser)
+            end_stream(self.ser)
+            clear_buffer(self.ser)
             self.ser.close()
+
             return extract_data(dstore, self.freq)
         else:
             return [(), ]
 
 
 def store(data, time_str, ename, freq, T_ma, plot=True):
-    
+
     import pandas as pd
     import os
     flowr, time = zip(*data)
@@ -201,13 +208,14 @@ def store(data, time_str, ename, freq, T_ma, plot=True):
 
     print(f'{1000*sum(flowr)/len(flowr):.2f} mLpm')
 
-    ma = pd.Series(flowr).rolling(T_ma*freq, min_periods=1,).mean(numeric_only=True)
+    ma = pd.Series(flowr).rolling(
+        T_ma*freq, min_periods=1,).mean(numeric_only=True)
 
     df = pd.DataFrame({k: v for k, v in zip(['Time', f'{T_ma}s flow rate (lpm)'], [
         time, ma])})
     df.drop(index=df.index[((df['Time'] % 1) != 0)], inplace=True)
     df.to_csv(f'{fname}.csv', index=False)
-    
+
     if plot:
         import plotly.express as px
         fig = px.line(df, x='Time', y=f'{T_ma}s flow rate (lpm)')
