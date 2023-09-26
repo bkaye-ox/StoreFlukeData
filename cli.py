@@ -8,7 +8,7 @@ parser.add_argument(
 
 )
 parser.add_argument(
-    '-t', '--time', default=2,  help='time in minutes'
+    '-t', '--time', help='time in minutes'
 )
 
 parser.add_argument(
@@ -23,6 +23,10 @@ parser.add_argument(
     '-p', '--port', default='COM3', help='COM port, eg COM3'
 )
 
+parser.add_argument(
+    '-s', '--show', default=False, help='show plots'
+)
+
 
 if __name__ == '__main__':
     # freq = 80  # Hz, must be between 20 & 100 go with mux of 2
@@ -32,7 +36,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     import time
-    t_str = time.strftime('%H-%m',time.time)
+    t_str = time.strftime('%H-%m',time.localtime())
 
     experiment_name = args.name  # put the setting name
     # will include current hour-time_ in order to prevent overriding
@@ -41,4 +45,4 @@ if __name__ == '__main__':
     res = fluke.StreamFluke(args.port, args.mode, args.freq).measure(minutes=int(args.time))
     fluke.store(
         res, t_str, experiment_name, args.freq, 60,)
-    print(fluke.debug_command_responses)
+    # prin-t t(fluke.debug_command_responses)
